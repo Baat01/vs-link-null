@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vs. Link — Debug Console</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+    :root {
+      --bg:       #0d0f14;
+      --surface:  #161922;
+      --border:   #252935;
+      --text:     #c9d1e0;
+      --muted:    #5a6070;
+      --accent:   #5c8dff;
+      --green:    #3ecf7a;
+      --red:      #ff5c5c;
+      --orange:   #ffaa44;
+      --yellow:   #f4d03f;
+      --radius:   10px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', sans-serif;
+      font-size: 14px;
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    header {
+      background: linear-gradient(135deg, #1a1f2e 0%, #0d1117 100%);
+      border-bottom: 1px solid var(--border);
+      padding: 18px 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    header h1 {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+      color: #fff;
+    }
+    header h1 span {
+      color: var(--accent);
+    }
+
+    #server-status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 500;
+    }
+    .dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--red);
+      transition: background 0.3s;
+    }
+    .dot.online  { background: var(--green); box-shadow: 0 0 8px var(--green); }
+    .dot.offline { background: var(--red);   box-shadow: 0 0 8px var(--red); }
+
+    /* ── Layout ── */
+    .layout {
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      height: calc(100vh - 61px);
+    }
+
+    /* ── Sidebar ── */
+    aside {
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      padding: 20px 16px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .sidebar-title {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--muted);
+      padding: 4px 8px 12px;
+    }
+
+    .ep-btn {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: var(--radius);
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--text);
+      cursor: pointer;
+      text-align: left;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 500;
+      transition: all 0.15s;
+      width: 100%;
+    }
+    .ep-btn:hover {
+      background: rgba(92,141,255,0.08);
+      border-color: rgba(92,141,255,0.2);
+      color: #fff;
+    }
+    .ep-btn.active {
+      background: rgba(92,141,255,0.15);
+      border-color: rgba(92,141,255,0.4);
+      color: var(--accent);
+    }
+    .ep-btn .badge {
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: rgba(92,141,255,0.15);
+      color: var(--accent);
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 500;
+    }
+    .ep-btn .badge.debug { background: rgba(244,208,63,0.15); color: var(--yellow); }
+    .ep-btn .badge.new   { background: rgba(62,207,122,0.15); color: var(--green); }
+
+    .sep { height: 1px; background: var(--border); margin: 8px 0; }
+
+    .auto-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      margin-top: auto;
+      border-top: 1px solid var(--border);
+    }
+    .auto-row label {
+      font-size: 12px;
+      color: var(--muted);
+      flex: 1;
+    }
+    .auto-row input[type=range] {
+      width: 70px;
+      accent-color: var(--accent);
+    }
+    #refresh-val {
+      font-size: 12px;
+      color: var(--accent);
+      font-family: 'JetBrains Mono', monospace;
+      min-width: 28px;
+    }
+    #auto-toggle {
+      padding: 4px 10px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--muted);
+      font-size: 11px;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.15s;
+    }
+    #auto-toggle.on {
+      border-color: var(--green);
+      color: var(--green);
+      background: rgba(62,207,122,0.08);
+    }
+
+    /* ── Main content ── */
+    main {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 24px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+    .toolbar .path-box {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 14px;
+    }
+    .toolbar .path-box span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+    #current-path {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      color: var(--accent);
+      flex: 1;
+    }
+    #fetch-btn {
+      padding: 8px 18px;
+      border-radius: 8px;
+      border: none;
+      background: var(--accent);
+      color: #fff;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    #fetch-btn:hover { opacity: 0.85; }
+
+    /* ── Status bar ── */
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 24px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+    }
+    #status-code {
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 4px;
+    }
+    .ok    { background: rgba(62,207,122,0.15); color: var(--green); }
+    .err   { background: rgba(255,92,92,0.15);  color: var(--red); }
+    .warn  { background: rgba(255,170,68,0.15); color: var(--orange); }
+    #req-count { color: var(--muted); }
+
+    /* ── Debug banner ── */
+    #debug-banner {
+      display: none;
+      flex-direction: column;
+      gap: 10px;
+      padding: 16px 24px;
+      background: rgba(244,208,63,0.05);
+      border-bottom: 1px solid rgba(244,208,63,0.2);
+    }
+    #debug-banner.visible { display: flex; }
+
+    .debug-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 10px;
+    }
+    .debug-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px 14px;
+    }
+    .debug-card .dk { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 4px; }
+    .debug-card .dv {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      color: #fff;
+      word-break: break-all;
+    }
+    .debug-card .dv.detected-yes { color: var(--green); }
+    .debug-card .dv.detected-no  { color: var(--red); }
+    .debug-card .dv.warn          { color: var(--orange); }
+
+    .fix-hint {
+      background: rgba(255,92,92,0.06);
+      border: 1px solid rgba(255,92,92,0.25);
+      border-radius: var(--radius);
+      padding: 12px 16px;
+      font-size: 13px;
+      color: var(--red);
+      display: none;
+    }
+    .fix-hint.visible { display: block; }
+    .fix-hint strong { display: block; margin-bottom: 4px; }
+    .fix-hint code {
+      font-family: 'JetBrains Mono', monospace;
+      background: rgba(255,92,92,0.1);
+      padding: 1px 5px;
+      border-radius: 3px;
+    }
+
+    /* ── JSON output ── */
+    #output {
+      flex: 1;
+      overflow: auto;
+      padding: 24px;
+    }
+    pre#json {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      line-height: 1.7;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    /* JSON syntax highlights */
+    .jk  { color: #7cbbff; }     /* key */
+    .js  { color: #98d879; }     /* string value */
+    .jn  { color: #f4a15d; }     /* number */
+    .jb  { color: #b48eff; }     /* boolean */
+    .jnl { color: var(--muted);} /* null */
+
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      gap: 12px;
+      color: var(--muted);
+    }
+    .empty-state svg { opacity: 0.3; }
+    .empty-state p   { font-size: 13px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Vs. Link <span>Debug Console</span></h1>
+  <div id="server-status">
+    <div class="dot" id="status-dot"></div>
+    <span id="status-label">Connecting…</span>
+  </div>
+</header>
+
+<div class="layout">
+  <!-- Sidebar -->
+  <aside>
+    <div class="sidebar-title">Endpoints</div>
+
+    <button class="ep-btn" onclick="fetchEndpoint('/vs/debug')">
+      <span class="badge debug">GET</span> /vs/debug
+    </button>
+    <div class="sep"></div>
+    <button class="ep-btn" onclick="fetchEndpoint('/vs/info')">
+      <span class="badge">GET</span> /vs/info
+    </button>
+    <button class="ep-btn" onclick="fetchEndpoint('/vs/game')">
+      <span class="badge">GET</span> /vs/game
+    </button>
+    <div class="sep"></div>
+    <button class="ep-btn" onclick="fetchEndpoint('/vs/party')">
+      <span class="badge new">GET</span> /vs/party
+    </button>
+    <button class="ep-btn" onclick="fetchEndpoint('/vs/boxes')">
+      <span class="badge new">GET</span> /vs/boxes
+    </button>
+    <button class="ep-btn" onclick="fetchEndpoint('/vs/battle')">
+      <span class="badge new">GET</span> /vs/battle
+    </button>
+    <button class="ep-btn" onclick="fetchEndpoint('/vs/all')">
+      <span class="badge new">GET</span> /vs/all
+    </button>
+    <div class="sep"></div>
+    <button class="ep-btn" onclick="fetchEndpoint('/vs/badges')">
+      <span class="badge">GET</span> /vs/badges
+    </button>
+    <button class="ep-btn" onclick="fetchEndpoint('/update')">
+      <span class="badge">GET</span> /update
+    </button>
+
+    <div class="auto-row">
+      <label>Auto-refresh</label>
+      <input type="range" id="refresh-slider" min="1" max="10" value="2" oninput="updateRefresh(this.value)">
+      <span id="refresh-val">2s</span>
+      <button id="auto-toggle" onclick="toggleAuto()">OFF</button>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main>
+    <div class="toolbar">
+      <div class="path-box">
+        <span>GET</span>
+        <span style="color:var(--border)">|</span>
+        <span id="current-path">http://localhost:31123/vs/debug</span>
+      </div>
+      <button id="fetch-btn" onclick="fetchCurrent()">▶ Fetch</button>
+    </div>
+
+    <div class="status-bar">
+      <span id="status-code" class="warn">—</span>
+      <span id="req-count">0 requests</span>
+      <span id="resp-time" style="color:var(--muted); margin-left:auto"></span>
+    </div>
+
+    <!-- Debug banner (shown when /vs/debug is active) -->
+    <div id="debug-banner">
+      <div class="debug-grid" id="debug-grid"></div>
+      <div class="fix-hint" id="fix-hint">
+        <strong>⚠ Game not detected — titre ROM attendu</strong>
+        <span id="fix-text"></span>
+      </div>
+    </div>
+
+    <div id="output">
+      <div class="empty-state" id="empty-state">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M3 12h18M3 6h18M3 18h18"/>
+        </svg>
+        <p>Sélectionne un endpoint dans la barre latérale</p>
+      </div>
+      <pre id="json" style="display:none"></pre>
+    </div>
+  </main>
+</div>
+
+<script>
+const BASE = 'http://localhost:31123';
+let currentPath = '/vs/debug';
+let reqCount = 0;
+let autoTimer = null;
+let refreshSec = 2;
+
+// ── Server ping ────────────────────────────────────────────────────────────
+function pingServer() {
+  fetch(BASE + '/vs/info', { signal: AbortSignal.timeout(1500) })
+    .then(() => setOnline(true))
+    .catch(() => setOnline(false));
+}
+function setOnline(v) {
+  const dot   = document.getElementById('status-dot');
+  const label = document.getElementById('status-label');
+  dot.className = 'dot ' + (v ? 'online' : 'offline');
+  label.textContent = v ? 'Serveur actif' : 'Serveur injoignable';
+}
+pingServer();
+setInterval(pingServer, 3000);
+
+// ── Fetch helpers ──────────────────────────────────────────────────────────
+function fetchEndpoint(path) {
+  currentPath = path;
+  document.getElementById('current-path').textContent = BASE + path;
+  // highlight active button
+  document.querySelectorAll('.ep-btn').forEach(b => b.classList.remove('active'));
+  event?.currentTarget?.classList.add('active');
+  fetchCurrent();
+}
+
+function fetchCurrent() {
+  const t0 = performance.now();
+  fetch(BASE + currentPath)
+    .then(async res => {
+      const ms = Math.round(performance.now() - t0);
+      reqCount++;
+      document.getElementById('req-count').textContent = reqCount + ' requête' + (reqCount > 1 ? 's' : '');
+      document.getElementById('resp-time').textContent = ms + ' ms';
+
+      const sc = document.getElementById('status-code');
+      sc.textContent = res.status + ' ' + res.statusText;
+      sc.className = res.ok ? 'ok' : (res.status < 500 ? 'warn' : 'err');
+
+      try {
+        const data = await res.json();
+        renderJSON(data);
+        if (currentPath === '/vs/debug') renderDebugBanner(data);
+        else document.getElementById('debug-banner').classList.remove('visible');
+      } catch {
+        document.getElementById('json').style.display = 'none';
+        document.getElementById('empty-state').style.display = 'flex';
+        document.getElementById('debug-banner').classList.remove('visible');
+      }
+    })
+    .catch(err => {
+      setOnline(false);
+      const sc = document.getElementById('status-code');
+      sc.textContent = 'ERREUR RÉSEAU';
+      sc.className = 'err';
+    });
+}
+
+// ── JSON renderer with syntax highlighting ─────────────────────────────────
+function renderJSON(data) {
+  document.getElementById('empty-state').style.display = 'none';
+  const pre = document.getElementById('json');
+  pre.style.display = 'block';
+  pre.innerHTML = highlight(JSON.stringify(data, null, 2));
+}
+
+function highlight(json) {
+  return json
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"([^"]+)":/g, '<span class="jk">"$1"</span>:')
+    .replace(/: "([^"]*)"/g, ': <span class="js">"$1"</span>')
+    .replace(/: (\d+\.?\d*)/g, ': <span class="jn">$1</span>')
+    .replace(/: (true|false)/g, ': <span class="jb">$1</span>')
+    .replace(/: (null)/g, ': <span class="jnl">$1</span>');
+}
+
+// ── Debug banner renderer ──────────────────────────────────────────────────
+function renderDebugBanner(data) {
+  const banner = document.getElementById('debug-banner');
+  banner.classList.add('visible');
+  const grid = document.getElementById('debug-grid');
+  grid.innerHTML = '';
+
+  const detected = data.detected === true;
+  const fields = [
+    { k: 'Jeu détecté',       v: detected ? '✓ OUI' : '✗ NON',         cls: detected ? 'detected-yes' : 'detected-no' },
+    { k: 'Game Code',          v: data.gameCode || '—' },
+    { k: 'Titre brut (rawTitle)',  v: JSON.stringify(data.rawTitle) || '—', cls: 'warn' },
+    { k: 'Titre trimé',        v: JSON.stringify(data.trimmedTitle) || '—' },
+    { k: 'CRC32',              v: data.crc || '—' },
+    { k: 'Platform ID',        v: String(data.platform ?? '—') },
+    { k: 'NULL_MONS chargés',  v: String(data.nullMonsCount ?? 0),        cls: data.nullMonsCount > 0 ? 'detected-yes' : 'detected-no' },
+    { k: 'NULL_MOVES chargés', v: String(data.nullMovesCount ?? 0),       cls: data.nullMovesCount > 0 ? 'detected-yes' : 'detected-no' },
+    { k: 'charmap chargée',    v: data.charmapLoaded ? '✓ OUI' : '✗ NON', cls: data.charmapLoaded ? 'detected-yes' : 'detected-no' },
+    { k: 'Vs. Link version',   v: data.vsLinkVersion || '—' },
+  ];
+
+  if (detected && data.detectedVersion) {
+    fields.unshift({ k: 'Version détectée', v: data.detectedVersion.version + ' (gen ' + data.detectedVersion.generation + ')', cls: 'detected-yes' });
+  }
+
+  fields.forEach(f => {
+    const card = document.createElement('div');
+    card.className = 'debug-card';
+    card.innerHTML = `<div class="dk">${f.k}</div><div class="dv ${f.cls || ''}">${f.v}</div>`;
+    grid.appendChild(card);
+  });
+
+  // Show fix hint if not detected
+  const hint = document.getElementById('fix-hint');
+  const fixText = document.getElementById('fix-text');
+  if (!detected) {
+    hint.classList.add('visible');
+    const raw = data.rawTitle || '';
+    const trimmed = data.trimmedTitle || '';
+    fixText.innerHTML = `Le titre retourné par mGBA est <code>${trimmed}</code> (brut: <code>${JSON.stringify(raw)}</code>).<br>
+      Ajoutez cette ligne dans <strong>engine.lua</strong>&nbsp;:<br><br>
+      <code>addGame(versionId(PLATFORM_GBA, "${data.gameCode || 'BPEE'}", "${trimmed}", nil), nullGameProfile)</code>`;
+  } else {
+    hint.classList.remove('visible');
+  }
+}
+
+// ── Auto-refresh ───────────────────────────────────────────────────────────
+function updateRefresh(v) {
+  refreshSec = parseInt(v);
+  document.getElementById('refresh-val').textContent = v + 's';
+  if (autoTimer) { clearInterval(autoTimer); autoTimer = setInterval(fetchCurrent, refreshSec * 1000); }
+}
+function toggleAuto() {
+  const btn = document.getElementById('auto-toggle');
+  if (autoTimer) {
+    clearInterval(autoTimer); autoTimer = null;
+    btn.textContent = 'OFF'; btn.classList.remove('on');
+  } else {
+    autoTimer = setInterval(fetchCurrent, refreshSec * 1000);
+    btn.textContent = 'ON'; btn.classList.add('on');
+  }
+}
+
+// ── Init: auto-fetch /vs/debug on load ────────────────────────────────────
+fetchEndpoint('/vs/debug');
+</script>
+</body>
+</html>

@@ -1,11 +1,11 @@
 local m = Malachite
 
-local PLATFORM_GBA = 0
-local PLATFORM_GB = 1
+PLATFORM_GBA = 0
+PLATFORM_GB = 1
 
 local gameLookup = {}
 
-local function versionId(platform, code, title, crc)
+function versionId(platform, code, title, crc)
 	return {
 		platform = platform,
 		code = code,
@@ -14,7 +14,7 @@ local function versionId(platform, code, title, crc)
 	}
 end
 
-local function addGame(id, game)
+function addGame(id, game)
 	local lookup = gameLookup
 	if lookup[id.platform] == nil then
 		lookup[id.platform] = {}
@@ -128,26 +128,8 @@ local emeraldProfile = {
 addGame(versionId(PLATFORM_GBA, "BPEE", "POKEMON EMER", 0x1f1c08fb), emeraldProfile)
 addGame(versionId(PLATFORM_GBA, "AGB-BPEE", "POKEMON EMER", 0x1f1c08fb), emeraldProfile)
 
--- Pokemon Null (pokeemerald-expansion ROM hack)
--- CRC is nil: acts as a wildcard to match any build of Null
--- getBoxes and getBattle are Null-specific; not available on vanilla Emerald
--- Functions are wrapped in closures because gen3null.lua is loaded AFTER engine.lua.
--- Direct assignment (getInfo = nullGetInfo) would capture nil at registration time.
-local nullGameProfile = {
-	getInfo   = function() return nullGetInfo() end,
-	getParty  = function() return nullGetParty() end,
-	getBoxes  = function() return nullGetBoxes() end,
-	getBattle = function() return nullGetBattleState() end,
-}
-
--- Pokemon Null v1.2.4 (exact CRC match: 0x0FA75094)
-addGame(versionId(PLATFORM_GBA, "AGB-BPEE", "POKEMON EMER", 0x0FA75094), nullGameProfile)
-addGame(versionId(PLATFORM_GBA, "BPEE", "POKEMON EMER", 0x0FA75094), nullGameProfile)
-
--- Pokemon Null wildcard entries (title variants & future builds)
-addGame(versionId(PLATFORM_GBA, "AGB-BPEE", "POKEMON NULL", nil), nullGameProfile)
-addGame(versionId(PLATFORM_GBA, "BPEE", "POKEMON NULL", nil), nullGameProfile)
-addGame(versionId(PLATFORM_GBA, "AGB-BPEE", "POKEMON_NULL", nil), nullGameProfile)
-addGame(versionId(PLATFORM_GBA, "BPEE", "POKEMON_NULL", nil), nullGameProfile)
-addGame(versionId(PLATFORM_GBA, "AGB-BPEE", "POKEMONNULL", nil), nullGameProfile)
-addGame(versionId(PLATFORM_GBA, "BPEE", "POKEMONNULL", nil), nullGameProfile)
+-- GBA Expansion profiles (Pokémon Null and future patches)
+-- are declared in profiles.lua and registered via registerGbaProfiles().
+if registerGbaProfiles then
+	registerGbaProfiles()
+end

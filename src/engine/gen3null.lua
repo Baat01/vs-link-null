@@ -1,57 +1,11 @@
 -- =============================================================================
--- gen3null.lua — Pokémon Null (pokeemerald-expansion) Memory Reader
--- Part of Vs. Link | Engine: src/engine/
+-- gen3null.lua — Generic GBA Expansion Reader (Factory Pattern)
+-- Part of Vs. Link | src/engine/
 -- =============================================================================
--- All addresses confirmed against pokeemerald-expansion .map symbols and
--- validated against Baat Tracking Script V1.2.x.
---
--- CRITICAL: Pokémon Null uses a +4 byte shift for encrypted substructures.
---   Vanilla Gen 3: address + 32 + (pSel[n] * 12) + (i * 4)
---   Pokémon Null:  address + 32 + 4 + (pSel[n] * 12) + (i * 4)
+-- Reads Pokémon memory structures for pokeemerald-expansion ROM hacks
+-- (such as Pokémon Null). Decoupled from hardcoded addresses: each game/patch
+-- profile provides its own address table via createExpansionReader(profile).
 -- =============================================================================
-
--- ── Address Constants ─────────────────────────────────────────────────────────
-
-local NULL_PARTY_COUNT    = 0x0200536D  -- gPlayerPartyCount  (u8)
-local NULL_PARTY_BASE     = 0x02005370  -- gPlayerParty        (PartyMon[6], 104 bytes each)
-local NULL_STORAGE_BASE   = 0x0200A154  -- gPokemonStorage     (BoxMon base = +4, 84 bytes each)
-local NULL_BATTLERS_COUNT = 0x02004D40  -- gBattlersCount      (u8)
-local NULL_BATTLE_OUTCOME = 0x02005110  -- gBattleOutcome      (u8)
-local NULL_TRAINER_A      = 0x0201962E  -- gTrainerBattleOpponent_A (u16)
-local NULL_TRAINER_B      = 0x02019630  -- gTrainerBattleOpponent_B (u16)
-local NULL_BATTLE_FLAGS   = 0x02004CB4  -- gBattleTypeFlags    (u32)
-
-local NULL_PARTY_MON_SIZE = 104         -- sizeof(struct Pokemon)
-local NULL_BOX_MON_SIZE   = 84          -- sizeof(struct BoxPokemon)
-local NULL_BOX_COUNT      = 14          -- 14 boxes (0–13)
-local NULL_BOX_SLOTS      = 30          -- 30 slots per box
-
--- Dead box range (Nuzlocke graveyard convention in Pokémon Null)
-local DEAD_BOX_START      = 11          -- boxes 11–13 are "dead" boxes
-local DEAD_BOX_END        = 13
-
--- BoxMon field offsets (relative to slot base address)
-local OFF_PERSONALITY     = 0x00        -- u32
-local OFF_OTID            = 0x04        -- u32
-local OFF_NICKNAME        = 0x08        -- 12 bytes, GBA charmap, 0xFF = end, 0x00 = space
-local OFF_LANGUAGE        = 0x14        -- u8
-local OFF_FLAGS           = 0x15        -- u8: bit0=badEgg, bit1=hasSpecies, bit2=isEgg
-local OFF_OTNAME          = 0x16        -- 7 bytes
-local OFF_MARKINGS        = 0x1D        -- u8
-local OFF_CHECKSUM        = 0x1E        -- u16
--- Null encrypted data starts at 0x24 (= 32 + 4, not vanilla 32)
-local OFF_ENCRYPTED       = 0x24        -- substructs start here
-
--- PartyMon extra fields (live stats appended after the 84-byte BoxMon section)
-local OFF_STATUS          = 80          -- u32
-local OFF_LEVEL           = 88          -- u8  (= 84 + 4, Null-specific)
-local OFF_HP              = 90          -- u16 (= 86 + 4)
-local OFF_MAX_HP          = 92          -- u16 (= 88 + 4)
-local OFF_ATTACK          = 94          -- u16 (= 90 + 4)
-local OFF_DEFENSE         = 96          -- u16 (= 92 + 4)
-local OFF_SPEED           = 98          -- u16 (= 94 + 4)
-local OFF_SP_ATTACK       = 100         -- u16 (= 96 + 4)
-local OFF_SP_DEFENSE      = 102         -- u16 (= 98 + 4)
 
 -- ── Substructure Permutation Table ───────────────────────────────────────────
 -- personality % 24 selects the order of the 4 substructs (G=0, A=1, E=2, M=3)
@@ -65,11 +19,18 @@ local SUBSTRUCT_ORDER = {
     [20] = {2, 1, 3, 0}, [21] = {3, 1, 2, 0}, [22] = {2, 3, 1, 0}, [23] = {3, 2, 1, 0},
 }
 
--- ── String Decoder ────────────────────────────────────────────────────────────
--- Uses the global `charmap` table (populated by the Baat tracking script or
--- ENGINE_TABLES.GBA_CHARMAP). Handles 0xFF terminator and 0x00 space safely.
+-- ── Common Offsets inside BoxMon (relative to mon start) ─────────────────────
+local OFF_PERSONALITY = 0x00
+local OFF_OTID        = 0x04
+local OFF_NICKNAME    = 0x08
+local OFF_LANGUAGE    = 0x14
+local OFF_FLAGS       = 0x15
+local OFF_OTNAME      = 0x16
+local OFF_MARKINGS    = 0x1D
+local OFF_CHECKSUM    = 0x1E
 
-local function nullDecodeString(rawstring)
+-- ── Safe String Decoder ──────────────────────────────────────────────────────
+local function decodeGbaString(rawstring)
     local result = ""
     for _, char in ipairs({rawstring:byte(1, #rawstring)}) do
         if char == 0xFF then
@@ -80,22 +41,16 @@ local function nullDecodeString(rawstring)
             result = result .. charmap[char]
         end
     end
-    -- Strip non-printable characters and trim whitespace
     result = result:gsub("[^\32-\126]", "")
     result = result:match("^%s*(.-)%s*$") or result
     return result
 end
 
--- ── Species ID Resolver ───────────────────────────────────────────────────────
--- During battle, the active Pokémon's species can be encrypted via XOR in RAM.
--- This fallback attempts to decrypt using (personality XOR otId) & 0xFFFF.
-
-local function nullResolveSpeciesId(pMon)
+-- ── Dynamic Species ID Fallback Resolver ─────────────────────────────────────
+local function resolveSpeciesId(pMon)
     if not pMon or not pMon.species or pMon.species == 0 then return 0 end
     local sp = pMon.species
-    -- Direct table lookup (normal case)
     if NULL_MONS and NULL_MONS[sp] then return sp end
-    -- Fallback: XOR decrypt with personality ^ otId
     if pMon.personality and pMon.otId then
         local key = (pMon.personality ~ pMon.otId) & 0xFFFF
         local decrypted = sp ~ key
@@ -104,214 +59,321 @@ local function nullResolveSpeciesId(pMon)
     return sp
 end
 
--- ── BoxMon Reader ─────────────────────────────────────────────────────────────
--- Reads a 84-byte BoxPokemon structure at the given address.
--- Applies the Null-specific +4 offset for encrypted substructures.
--- Returns nil if the slot is empty (personality == 0 and species resolves to 0).
+-- ── Experience Curves Calculation ───────────────────────────────────────────
+local function expSlow(n)        return math.floor((5 * (n ^ 3)) / 4) end
+local function expFast(n)        return math.floor((4 * (n ^ 3)) / 5) end
+local function expMedFast(n)     return n ^ 3 end
+local function expMedSlow(n)     return math.floor((6 * (n ^ 3)) / 5) - (15 * (n ^ 2)) + (100 * n) - 140 end
 
-function nullReadBoxMon(address)
-    local personality = emu:read32(address + OFF_PERSONALITY)
-    local otId        = emu:read32(address + OFF_OTID)
-
-    -- Fast empty-slot check: personality 0 means unoccupied
-    if personality == 0 then return nil end
-
-    local mon = {}
-    mon.personality = personality
-    mon.otId        = otId
-
-    -- Decode nickname (12 GBA-encoded bytes starting at offset 0x08)
-    local rawNick = emu:readRange(address + OFF_NICKNAME, 12)
-    mon.nickname  = nullDecodeString(rawNick)
-
-    -- Decode OT name (7 bytes at 0x16)
-    local rawOT = emu:readRange(address + OFF_OTNAME, 7)
-    mon.otName  = nullDecodeString(rawOT)
-
-    mon.language  = emu:read8(address + OFF_LANGUAGE)
-    local flagByte = emu:read8(address + OFF_FLAGS)
-    mon.isBadEgg  = (flagByte & 1) ~= 0
-    mon.hasSpecies = ((flagByte >> 1) & 1) ~= 0
-    mon.isEgg     = ((flagByte >> 2) & 1) ~= 0
-    mon.markings  = emu:read8(address + OFF_MARKINGS)
-    mon.checksum  = emu:read16(address + OFF_CHECKSUM)
-
-    -- ── Decrypt Substructures ─────────────────────────────────────────────────
-    local key  = otId ~ personality
-    local pSel = SUBSTRUCT_ORDER[personality % 24]
-
-    -- Each substruct is 12 bytes (3 × u32). Read and XOR-decrypt.
-    -- Null-specific: encrypted data starts at address + 0x24 (= 32 + 4)
-    local ss0, ss1, ss2, ss3 = {}, {}, {}, {}
-    for i = 0, 2 do
-        ss0[i] = emu:read32(address + OFF_ENCRYPTED + pSel[1] * 12 + i * 4) ~ key
-        ss1[i] = emu:read32(address + OFF_ENCRYPTED + pSel[2] * 12 + i * 4) ~ key
-        ss2[i] = emu:read32(address + OFF_ENCRYPTED + pSel[3] * 12 + i * 4) ~ key
-        ss3[i] = emu:read32(address + OFF_ENCRYPTED + pSel[4] * 12 + i * 4) ~ key
+local function expErratic(n)
+    if n <= 50 then      return math.floor(((100 - n) * (n ^ 3)) / 50)
+    elseif n <= 68 then  return math.floor(((150 - n) * (n ^ 3)) / 100)
+    elseif n <= 98 then  return math.floor(math.floor((1911 - 10 * n) / 3) * (n ^ 3) / 500)
+    else                 return math.floor((160 - n) * (n ^ 3) / 100)
     end
-
-    -- ── Substruct G (Growth) — ss0 ────────────────────────────────────────────
-    local rawSpecies    = ss0[0] & 0xFFFF
-    mon.speciesId       = rawSpecies
-    mon.species         = nullResolveSpeciesId({ species = rawSpecies, personality = personality, otId = otId })
-    mon.speciesName     = (NULL_MONS and NULL_MONS[mon.species]) or nil
-    mon.heldItemId      = ss0[0] >> 16
-    mon.heldItemName    = (NULL_ITEMS and NULL_ITEMS[mon.heldItemId]) or nil
-    mon.experience      = ss0[1]
-    mon.ppBonuses       = ss0[2] & 0xFF
-    mon.friendship      = (ss0[2] >> 8) & 0xFF
-    -- hiddenNature stored in bits 21–25 of ss0[2] (Null-specific, not personality % 25)
-    mon.hiddenNature    = (ss0[2] >> 21) & 0x1F
-    local natureIdx     = mon.hiddenNature
-    -- If hiddenNature == 26 (sentinel for "use personality"), fall back to personality % 25
-    if natureIdx == 26 then natureIdx = personality % 25 end
-    mon.nature          = (NULL_NATURES and NULL_NATURES[natureIdx + 1]) or ("nature_" .. natureIdx)
-
-    -- ── Substruct A (Attacks) — ss1 ───────────────────────────────────────────
-    mon.moveIds = {
-        ss1[0] & 0xFFFF,
-        ss1[0] >> 16,
-        ss1[1] & 0xFFFF,
-        ss1[1] >> 16,
-    }
-    mon.moveNames = {}
-    for i = 1, 4 do
-        mon.moveNames[i] = (NULL_MOVES and NULL_MOVES[mon.moveIds[i] + 1]) or nil
-    end
-    mon.pp = {
-        ss1[2] & 0xFF,
-        (ss1[2] >> 8) & 0xFF,
-        (ss1[2] >> 16) & 0xFF,
-        ss1[2] >> 24,
-    }
-
-    -- ── Substruct E (EVs & Condition) — ss2 ──────────────────────────────────
-    mon.hpEV        = ss2[0] & 0xFF
-    mon.attackEV    = (ss2[0] >> 8) & 0xFF
-    mon.defenseEV   = (ss2[0] >> 16) & 0xFF
-    mon.speedEV     = ss2[0] >> 24
-    mon.spAttackEV  = ss2[1] & 0xFF
-    mon.spDefenseEV = (ss2[1] >> 8) & 0xFF
-
-    -- ── Substruct M (Miscellaneous) — ss3 ────────────────────────────────────
-    mon.pokerus      = ss3[0] & 0xFF
-    mon.metLocation  = (ss3[0] >> 8) & 0xFF
-    local metFlags   = ss3[0] >> 16
-    mon.metLevel     = metFlags & 0x7F
-    mon.metGame      = (metFlags >> 7) & 0xF
-    mon.pokeball     = (metFlags >> 11) & 0xF
-    mon.otGender     = (metFlags >> 15) & 0x1
-    local ivFlags    = ss3[1]
-    mon.hpIV         = (ivFlags >> 0)  & 0x1F
-    mon.attackIV     = (ivFlags >> 5)  & 0x1F
-    mon.defenseIV    = (ivFlags >> 10) & 0x1F
-    mon.speedIV      = (ivFlags >> 15) & 0x1F
-    mon.spAttackIV   = (ivFlags >> 20) & 0x1F
-    mon.spDefenseIV  = (ivFlags >> 25) & 0x1F
-    -- Ability slot: bits 29–30 of ss3[2]
-    mon.abilitySlot  = (ss3[2] >> 29) & 0x3
-
-    return mon
 end
 
--- ── PartyMon Reader ───────────────────────────────────────────────────────────
--- Reads a 104-byte Pokemon (party) structure. Calls nullReadBoxMon for the
--- first 84 bytes, then reads the live battle stats from the remaining 20 bytes.
--- All stat offsets use the Null-specific +4 shift from the slot base address.
-
-function nullReadPartyMon(address)
-    local mon = nullReadBoxMon(address)
-    if not mon then return nil end
-
-    mon.status    = emu:read32(address + OFF_STATUS)
-    mon.level     = emu:read8( address + OFF_LEVEL)
-    mon.hp        = emu:read16(address + OFF_HP)
-    mon.maxHP     = emu:read16(address + OFF_MAX_HP)
-    mon.attack    = emu:read16(address + OFF_ATTACK)
-    mon.defense   = emu:read16(address + OFF_DEFENSE)
-    mon.speed     = emu:read16(address + OFF_SPEED)
-    mon.spAttack  = emu:read16(address + OFF_SP_ATTACK)
-    mon.spDefense = emu:read16(address + OFF_SP_DEFENSE)
-
-    return mon
+local function expFluctuating(n)
+    if n < 15 then       return math.floor((math.floor((n + 1) / 3) + 24) * (n ^ 3) / 50)
+    elseif n <= 36 then  return math.floor((n + 14) * (n ^ 3) / 50)
+    else                 return math.floor((math.floor(n / 2) + 32) * (n ^ 3) / 50)
+    end
 end
 
--- ── Party Reader ──────────────────────────────────────────────────────────────
--- Reads up to 6 party slots from gPlayerParty using gPlayerPartyCount.
+local function calcExpRequired(curve, level)
+    if level <= 1 then return 0 end
+    if curve == 0 then return expMedFast(level)
+    elseif curve == 1 then return expErratic(level)
+    elseif curve == 2 then return expFluctuating(level)
+    elseif curve == 3 then return expMedSlow(level)
+    elseif curve == 4 then return expFast(level)
+    elseif curve == 5 then return expSlow(level)
+    end
+    return expMedFast(level)
+end
 
-function nullGetParty()
-    local count = emu:read8(NULL_PARTY_COUNT)
-    if count < 0 or count > 6 then count = 0 end
-    local party = {}
-    for i = 1, count do
-        local addr = NULL_PARTY_BASE + (i - 1) * NULL_PARTY_MON_SIZE
-        local mon = nullReadPartyMon(addr)
-        if mon then
-            table.insert(party, mon)
+-- =============================================================================
+-- createExpansionReader(profile)
+-- Factory function returning an engine reader table:
+-- { getInfo, getParty, getBoxes, getBattle, readBoxMon, readPartyMon }
+-- =============================================================================
+function createExpansionReader(profile)
+    local addr   = profile.addresses or {}
+    local layout = profile.layout or {}
+
+    -- Configuration & Layout parameters with sensible defaults
+    local partyMonSize    = layout.partyMonSize or 104
+    local boxMonSize      = layout.boxMonSize or 84
+    local encryptedOffset = layout.encryptedOffset or 0x24  -- 32 + 4 for pokeemerald-expansion
+    local boxCount        = layout.boxCount or 14
+    local boxSlots        = layout.boxSlots or 30
+    local deadBoxStart    = layout.deadBoxStart or 11
+    local deadBoxEnd      = layout.deadBoxEnd or 13
+    local hasEVs          = (layout.hasEVs == true)  -- Defaults to false for Null (no EVs)
+
+    -- Level Curve reading from ROM (offset +21 in SpeciesInfo)
+    local speciesInfoAddr = addr.speciesInfo or 0x083E0448
+    local function getExpCurve(speciesId)
+        if not speciesId or speciesId <= 0 then return 0 end
+        return emu:read8(speciesInfoAddr + (36 * speciesId) + 21)
+    end
+
+    local function calcLevelFromExp(exp, speciesId)
+        if type(calcLevel) == "function" then
+            local ok, res = pcall(calcLevel, exp, speciesId)
+            if ok and res and res > 0 then return res end
         end
+        if not exp or exp <= 0 then return 1 end
+        local curve = getExpCurve(speciesId)
+        local level = 1
+        while level < 100 and exp >= calcExpRequired(curve, level + 1) do
+            level = level + 1
+        end
+        return level
     end
-    return party
-end
 
--- ── PC Box Reader ─────────────────────────────────────────────────────────────
--- Reads all 14 boxes (420 slots) from gPokemonStorage + 4.
--- Returns a flat array of occupied slots, each with box/slot index and
--- a boolean isDeadBox flag for the Nuzlocke graveyard range (boxes 11–13).
+    -- ── Reader for a single BoxPokemon (84 bytes) ─────────────────────────────
+    local function readBoxMon(address)
+        local personality = emu:read32(address + OFF_PERSONALITY)
+        local otId        = emu:read32(address + OFF_OTID)
 
-function nullGetBoxes()
-    local base = NULL_STORAGE_BASE + 4  -- Box data starts 4 bytes into gPokemonStorage
-    local results = {}
+        if personality == 0 then return nil end
 
-    for box = 0, NULL_BOX_COUNT - 1 do
-        for slot = 0, NULL_BOX_SLOTS - 1 do
-            local addr = base + (box * NULL_BOX_SLOTS + slot) * NULL_BOX_MON_SIZE
-            -- Quick screen: personality == 0 means empty
-            if emu:read32(addr + OFF_PERSONALITY) ~= 0 then
-                local mon = nullReadBoxMon(addr)
-                if mon and mon.species ~= 0 then
-                    mon.box       = box
-                    mon.slot      = slot
-                    mon.isDeadBox = (box >= DEAD_BOX_START and box <= DEAD_BOX_END)
-                    table.insert(results, mon)
+        local mon = {}
+        mon.personality = personality
+        mon.otId        = otId
+
+        mon.nickname = decodeGbaString(emu:readRange(address + OFF_NICKNAME, 12))
+        mon.otName   = decodeGbaString(emu:readRange(address + OFF_OTNAME, 7))
+        mon.language = emu:read8(address + OFF_LANGUAGE)
+
+        local flagByte = emu:read8(address + OFF_FLAGS)
+        mon.isBadEgg   = (flagByte & 1) ~= 0
+        mon.hasSpecies = ((flagByte >> 1) & 1) ~= 0
+        mon.isEgg      = ((flagByte >> 2) & 1) ~= 0
+        mon.markings   = emu:read8(address + OFF_MARKINGS)
+        mon.checksum   = emu:read16(address + OFF_CHECKSUM)
+
+        -- Decrypt 4 substructs (12 bytes each)
+        local key  = otId ~ personality
+        local pSel = SUBSTRUCT_ORDER[personality % 24]
+        local ss0, ss1, ss2, ss3 = {}, {}, {}, {}
+
+        for i = 0, 2 do
+            ss0[i] = emu:read32(address + encryptedOffset + pSel[1] * 12 + i * 4) ~ key
+            ss1[i] = emu:read32(address + encryptedOffset + pSel[2] * 12 + i * 4) ~ key
+            ss2[i] = emu:read32(address + encryptedOffset + pSel[3] * 12 + i * 4) ~ key
+            ss3[i] = emu:read32(address + encryptedOffset + pSel[4] * 12 + i * 4) ~ key
+        end
+
+        -- Substruct G (Growth)
+        local rawSpecies = ss0[0] & 0xFFFF
+        mon.speciesId    = rawSpecies
+        mon.species      = resolveSpeciesId({ species = rawSpecies, personality = personality, otId = otId })
+        mon.speciesName  = (NULL_MONS and NULL_MONS[mon.species]) or nil
+        mon.heldItemId   = ss0[0] >> 16
+        mon.heldItemName = (NULL_ITEMS and NULL_ITEMS[mon.heldItemId]) or nil
+        mon.experience   = ss0[1]
+        mon.level        = calcLevelFromExp(mon.experience, mon.species)
+        mon.ppBonuses    = ss0[2] & 0xFF
+        mon.friendship   = (ss0[2] >> 8) & 0xFF
+
+        mon.hiddenNature = (ss0[2] >> 21) & 0x1F
+        local natureIdx  = mon.hiddenNature
+        if natureIdx == 26 then natureIdx = personality % 25 end
+        mon.nature       = (NULL_NATURES and NULL_NATURES[natureIdx + 1]) or ("nature_" .. natureIdx)
+
+        -- Substruct A (Attacks)
+        mon.moveIds = {
+            ss1[0] & 0xFFFF,
+            ss1[0] >> 16,
+            ss1[1] & 0xFFFF,
+            ss1[1] >> 16,
+        }
+        mon.moveNames = {}
+        for i = 1, 4 do
+            mon.moveNames[i] = (NULL_MOVES and NULL_MOVES[mon.moveIds[i] + 1]) or nil
+        end
+        mon.pp = {
+            ss1[2] & 0xFF,
+            (ss1[2] >> 8) & 0xFF,
+            (ss1[2] >> 16) & 0xFF,
+            ss1[2] >> 24,
+        }
+
+        -- Substruct E (EVs)
+        -- In Pokémon Null, there are NO EVs (always 0). Raw memory bytes in ss2 are ignored.
+        mon.hpEV        = hasEVs and (ss2[0] & 0xFF) or 0
+        mon.attackEV    = hasEVs and ((ss2[0] >> 8) & 0xFF) or 0
+        mon.defenseEV   = hasEVs and ((ss2[0] >> 16) & 0xFF) or 0
+        mon.speedEV     = hasEVs and (ss2[0] >> 24) or 0
+        mon.spAttackEV  = hasEVs and (ss2[1] & 0xFF) or 0
+        mon.spDefenseEV = hasEVs and ((ss2[1] >> 8) & 0xFF) or 0
+
+        mon.evs = {
+            hp  = mon.hpEV,
+            atk = mon.attackEV,
+            def = mon.defenseEV,
+            spa = mon.spAttackEV,
+            spd = mon.spDefenseEV,
+            spe = mon.speedEV,
+        }
+
+        -- Substruct M (Misc & IVs)
+        mon.pokerus      = ss3[0] & 0xFF
+        mon.metLocation  = (ss3[0] >> 8) & 0xFF
+        local metFlags   = ss3[0] >> 16
+        mon.metLevel     = metFlags & 0x7F
+        mon.metGame      = (metFlags >> 7) & 0xF
+        mon.pokeball     = (metFlags >> 11) & 0xF
+        mon.otGender     = (metFlags >> 15) & 0x1
+
+        local ivFlags    = ss3[1]
+        mon.hpIV         = (ivFlags >> 0)  & 0x1F
+        mon.attackIV     = (ivFlags >> 5)  & 0x1F
+        mon.defenseIV    = (ivFlags >> 10) & 0x1F
+        mon.speedIV      = (ivFlags >> 15) & 0x1F
+        mon.spAttackIV   = (ivFlags >> 20) & 0x1F
+        mon.spDefenseIV  = (ivFlags >> 25) & 0x1F
+        mon.abilitySlot  = (ss3[2] >> 29) & 0x3
+
+        mon.ivs = {
+            hp  = mon.hpIV,
+            atk = mon.attackIV,
+            def = mon.defenseIV,
+            spa = mon.spAttackIV,
+            spd = mon.spDefenseEV,
+            spe = mon.speedIV,
+        }
+
+        return mon
+    end
+
+    -- ── Reader for a PartyPokemon (104 bytes) ─────────────────────────────────
+    local function readPartyMon(address)
+        local mon = readBoxMon(address)
+        if not mon then return nil end
+
+        -- Null format has +4 shift on live stats:
+        -- level=88, hp=90, maxHP=92, atk=94, def=96, spe=98, spa=100, spd=102
+        local shift = (partyMonSize > 100) and 4 or 0
+
+        mon.status    = emu:read32(address + 80)
+        local pLvl    = emu:read8(address + 84 + shift)
+        if pLvl and pLvl > 0 then
+            mon.level = pLvl
+        end
+        mon.hp        = emu:read16(address + 86 + shift)
+        mon.maxHP     = emu:read16(address + 88 + shift)
+        mon.attack    = emu:read16(address + 90 + shift)
+        mon.defense   = emu:read16(address + 92 + shift)
+        mon.speed     = emu:read16(address + 94 + shift)
+        mon.spAttack  = emu:read16(address + 96 + shift)
+        mon.spDefense = emu:read16(address + 98 + shift)
+
+        return mon
+    end
+
+    -- ── Public Reader Interface ───────────────────────────────────────────────
+    local reader = {}
+
+    reader.getInfo = function()
+        return {
+            name       = profile.name or "Pokemon Null",
+            version    = profile.version or "null",
+            like       = profile.like or "emerald-expansion",
+            generation = profile.generation or 3,
+            crc        = profile.crc and string.format("0x%08X", profile.crc) or nil,
+        }
+    end
+
+    reader.getParty = function()
+        local partyAddr  = addr.party or 0x02005370
+        local countAddr  = addr.partyCount or 0x0200536D
+        local count      = emu:read8(countAddr)
+
+        if count < 0 or count > 6 then count = 0 end
+        local party = {}
+        for i = 1, count do
+            local slotAddr = partyAddr + (i - 1) * partyMonSize
+            local pkm = readPartyMon(slotAddr)
+            if pkm then
+                table.insert(party, pkm)
+            end
+        end
+        return party
+    end
+
+    reader.getBoxes = function()
+        local storageBase = addr.storage or 0x0200A154
+        local boxBase = storageBase + 4
+        local results = {}
+
+        for box = 0, boxCount - 1 do
+            for slot = 0, boxSlots - 1 do
+                local slotAddr = boxBase + (box * boxSlots + slot) * boxMonSize
+                if emu:read32(slotAddr + OFF_PERSONALITY) ~= 0 then
+                    local pkm = readBoxMon(slotAddr)
+                    if pkm and pkm.species ~= 0 then
+                        pkm.box       = box
+                        pkm.slot      = slot
+                        pkm.isDeadBox = (box >= deadBoxStart and box <= deadBoxEnd)
+                        table.insert(results, pkm)
+                    end
                 end
             end
         end
+        return results
     end
 
-    return results
+    reader.getBattle = function()
+        local bCount   = addr.battlersCount and emu:read8(addr.battlersCount) or 0
+        local outcome  = addr.battleOutcome and emu:read8(addr.battleOutcome) or 0
+        local trainerA = addr.trainerA and emu:read16(addr.trainerA) or 0
+        local trainerB = addr.trainerB and emu:read16(addr.trainerB) or 0
+        local flags    = addr.battleFlags and emu:read32(addr.battleFlags) or 0
+
+        local isTrainerBattle = (math.floor(flags / 8) % 2 ~= 0)
+        local inBattle = (bCount > 0 and outcome == 0 and trainerA ~= 0 and isTrainerBattle)
+
+        return {
+            inBattle        = inBattle,
+            battlersCount   = bCount,
+            outcome         = outcome,
+            trainerIdA      = trainerA,
+            trainerIdB      = trainerB,
+            isTrainerBattle = isTrainerBattle,
+            flags           = flags,
+        }
+    end
+
+    reader.readBoxMon   = readBoxMon
+    reader.readPartyMon = readPartyMon
+
+    return reader
 end
 
--- ── Battle State Reader ───────────────────────────────────────────────────────
--- Returns the current battle metadata for calculator consumption.
-
-function nullGetBattleState()
-    local bCount    = emu:read8( NULL_BATTLERS_COUNT)
-    local outcome   = emu:read8( NULL_BATTLE_OUTCOME)
-    local trainerA  = emu:read16(NULL_TRAINER_A)
-    local trainerB  = emu:read16(NULL_TRAINER_B)
-    local flags     = emu:read32(NULL_BATTLE_FLAGS)
-
-    -- Bit 3 of gBattleTypeFlags = BATTLE_TYPE_TRAINER
-    local isTrainerBattle = (math.floor(flags / 8) % 2 ~= 0)
-    local inBattle = (bCount > 0 and outcome == 0 and trainerA ~= 0 and isTrainerBattle)
-
-    return {
-        inBattle       = inBattle,
-        battlersCount  = bCount,
-        outcome        = outcome,
-        trainerIdA     = trainerA,
-        trainerIdB     = trainerB,
-        isTrainerBattle = isTrainerBattle,
-        flags          = flags,
+-- ── Default Fallback Globals ──────────────────────────────────────────────────
+-- Fallback aliases for any legacy code calling nullGetParty() directly
+local defaultReader = createExpansionReader({
+    name = "Pokemon Null (Default)",
+    addresses = {
+        partyCount    = 0x0200536D,
+        party         = 0x02005370,
+        storage       = 0x0200A154,
+        speciesInfo   = 0x083E0448,
+        battlersCount = 0x02004D40,
+        battleOutcome = 0x02005110,
+        trainerA      = 0x0201962E,
+        trainerB      = 0x02019630,
+        battleFlags   = 0x02004CB4,
     }
-end
+})
 
--- ── Game Info ─────────────────────────────────────────────────────────────────
-
-function nullGetInfo()
-    return {
-        version    = "null",
-        like       = "emerald-expansion",
-        generation = 3,
-    }
-end
+function nullGetInfo()        return defaultReader.getInfo() end
+function nullGetParty()       return defaultReader.getParty() end
+function nullGetBoxes()       return defaultReader.getBoxes() end
+function nullGetBattleState() return defaultReader.getBattle() end
+function nullReadBoxMon(a)    return defaultReader.readBoxMon(a) end
+function nullReadPartyMon(a)  return defaultReader.readPartyMon(a) end
+function nullDecodeString(s)  return decodeGbaString(s) end

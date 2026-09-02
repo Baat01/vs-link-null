@@ -30,7 +30,11 @@ function Malachite:log(...)
 	for i = 1, select("#", ...) do
 		out = out .. Malachite:toString(select(i, ...))
 	end
-	console:log(out)
+	if buf and buf.print then
+		buf:print(out .. "\n")
+	else
+		console:log(out)
+	end
 end
 
 function Malachite:error(...)
@@ -38,7 +42,11 @@ function Malachite:error(...)
 	for i = 1, select("#", ...) do
 		out = out .. Malachite:toString(select(i, ...))
 	end
-	console:error(out)
+	if buf and buf.print then
+		buf:print("[ERROR] " .. out .. "\n")
+	else
+		console:error(out)
+	end
 end
 
 function Malachite:copy(src)

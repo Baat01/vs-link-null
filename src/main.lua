@@ -41,6 +41,38 @@ function start()
 
 	m:log("Vs. Link ready on port 31123")
 	m:log("Endpoints: /vs/info /vs/game /vs/party /vs/boxes /vs/battle /vs/all /update")
+
+	-- Load user scripts automatically
+	local scriptsDir = wd .. "../scripts/"
+	local cmd
+	if package.config and package.config:sub(1,1) == "\\" then
+		cmd = 'dir /b "' .. scriptsDir:gsub("/", "\\") .. '*.lua" 2>nul'
+	else
+		cmd = 'ls -1 "' .. scriptsDir .. '" 2>/dev/null'
+	end
+	
+	if io.popen then
+		local p = io.popen(cmd)
+		if p then
+			local found = false
+			for file in p:lines() do
+				if file:match("%.lua$") then
+					found = true
+					m:log("Loading user script: " .. file)
+					local success, err = pcall(dofile, scriptsDir .. file)
+					if not success then
+						m:error("Error loading " .. file .. ": " .. tostring(err))
+					end
+				end
+			end
+			p:close()
+			if not found then
+				m:log("No user scripts found in scripts/ directory.")
+			end
+		end
+	else
+		m:log("Warning: Auto-loading scripts is not supported in this environment (io.popen is disabled).")
+	end
 end
 
 start()

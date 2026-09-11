@@ -25,7 +25,7 @@ Before enabling synchronization, ensure your local environment is running in thi
 ### 2. How to Enable Live Sync
 1. On the calculator webpage, locate the **`Auto-Sync mGBA`** toggle button (near the top toolbar or custom set import area).
 2. Click the button to switch it from **`OFF`** to **`ON`**:
-   * **Recherche / Connecting...** : The calculator is probing `http://localhost:31123`[cite: 10].
+   * **Recherche / Connecting...** : The calculator is probing `http://localhost:31123`.
    * **Connecté / Connected (Green)** : Party and PC box data were read successfully.
    * **Déconnecté / Offline (Red)** : mGBA is not detected. Ensure mGBA is running and `vs.lua` is loaded in the Scripting window.
 3. Once connected, your active team and PC box Pokémon will automatically populate the Pokémon dropdown menus under the **Custom / Imported** sets category.
@@ -91,9 +91,9 @@ Avant d'activer la synchronisation, assurez-vous d'avoir lancé l'environnement 
 ### 2. Activer la synchronisation en direct
 1. Sur la page du calculateur, repérez le bouton bascule **`Auto-Sync mGBA`** (situé près de la barre d'outils supérieure ou de la section d'importation des sets).
 2. Cliquez sur le bouton pour faire passer l'état de **`OFF`** à **`ON`** :
-   * **Recherche...** : Le calculateur tente de contacter `http://localhost:31123`[cite: 10].
+   * **Recherche...** : Le calculateur tente de contacter `http://localhost:31123`.
    * **Connecté (Vert)** : La communication fonctionne ; vos boîtes PC et votre équipe active sont immédiatement importées.
-   * **Déconnecté / Émulateur non détecté (Rouge)** : Vérifiez que mGBA est bien ouvert et que `vs.lua` est chargé dans la fenêtre de scripts[cite: 9].
+   * **Déconnecté / Émulateur non détecté (Rouge)** : Vérifiez que mGBA est bien ouvert et que `vs.lua` est chargé dans la fenêtre de scripts.
 3. Vos Pokémon apparaissent automatiquement dans les listes déroulantes du calculateur sous la catégorie des sets **Custom / Importés**.
 4. Toute capture, modification d'équipe ou gain de niveau en jeu est synchronisé automatiquement en arrière-plan toutes les quelques secondes, sans rafraîchissement manuel de la page. !
 

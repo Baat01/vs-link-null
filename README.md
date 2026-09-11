@@ -18,7 +18,6 @@ Before enabling synchronization, ensure your local environment is running in thi
 2. Open the scripting engine via **Tools** > **Scripting...** (`Ctrl+Shift+L` / `Cmd+Shift+L`).
 3. Click **File** > **Load script...**, navigate to your `vs-link` folder, and select **`vs.lua`**.
 4. Verify that the **`Vs. Link`** buffer tab appears in the console, confirming that the HTTP server is listening on `http://localhost:31123`.
-   *(Optional: If you use additional scripts, ensure they are placed inside the `scripts/` folder so they auto-load with `vs.lua`.*
 
 **Tip (Auto-Loader):** If you have personal utility scripts (e.g., custom trackers, frag assistants), simply drop them into the scripts/ folder. They will run automatically when vs.lua starts!
 

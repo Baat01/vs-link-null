@@ -8,6 +8,30 @@ This fork/adaptation of Vs. Link is specifically tailored for **Pokémon Null**,
 
 The script exposes an HTTP JSON API and handles reading internal game data directly from mGBA memory, parsing varying formats, and presenting it in a consistent JSON format. Client applications (programs, websites, OBS overlays) require no additional libraries to interact with Vs. Link.
 
+## Getting Started
+
+If you are using the forked [Null Damage Calculator](https://github.com/NathanMelons/Null-Damage-Calc) with mGBA integration:
+
+### 1. Requirements & Setup Steps
+Before enabling synchronization, ensure your local environment is running in this order:
+1. **Launch mGBA** (v0.10.0 or higher) and load your **Pokémon Null** ROM.
+2. Open the scripting engine via **Tools** > **Scripting...** (`Ctrl+Shift+L` / `Cmd+Shift+L`).
+3. Click **File** > **Load script...**, navigate to your `vs-link` folder, and select **`vs.lua`**.
+4. Verify that the **`Vs. Link`** buffer tab appears in the console, confirming that the HTTP server is listening on `http://localhost:31123`.
+   *(Optional: If you use additional scripts, ensure they are placed inside the `scripts/` folder so they auto-load with `vs.lua`.*
+
+**Tip (Auto-Loader):** If you have personal utility scripts (e.g., custom trackers, frag assistants), simply drop them into the scripts/ folder. They will run automatically when vs.lua starts!
+
+### 2. How to Enable Live Sync
+1. On the calculator webpage, locate the **`Auto-Sync mGBA`** toggle button (near the top toolbar or custom set import area).
+2. Click the button to switch it from **`OFF`** to **`ON`**:
+   * **Recherche / Connecting...** : The calculator is probing `http://localhost:31123`[cite: 10].
+   * **Connecté / Connected (Green)** : Party and PC box data were read successfully.
+   * **Déconnecté / Offline (Red)** : mGBA is not detected. Ensure mGBA is running and `vs.lua` is loaded in the Scripting window.
+3. Once connected, your active team and PC box Pokémon will automatically populate the Pokémon dropdown menus under the **Custom / Imported** sets category.
+4. Any new catch, box swap, level-up, or evolution in-game will sync automatically in the background every few seconds without needing to reload the webpage.
+
+
 ## Key Features
 
 *   **Declarative Profile System**: Easily support new patches and versions of Pokémon Null without changing the core code. Addresses and CRCs are managed in `src/engine/profiles.lua`.
@@ -50,6 +74,28 @@ When a new version of Pokémon Null is released:
 Cette adaptation de Vs. Link a été spécialement conçue pour **Pokémon Null**, une ROM hack avec des mécaniques uniques (ex: pas d'EVs, calcul dynamique du niveau dans le PC) et des mises à jour régulières (ex: v1.2.4, v1.2.5).
 
 Le script expose une API HTTP JSON et se charge de lire les données internes du jeu directement depuis la mémoire de mGBA, d'analyser les différents formats et de les présenter de manière standardisée en JSON. Les applications clientes (programmes, sites web, overlays OBS) ne nécessitent aucune bibliothèque supplémentaire pour interagir avec Vs. Link.
+
+## Connexion avec le Calculateur de Dégâts (Auto-Sync en direct)
+
+Si vous utilisez le fork du [Calculateur de Dégâts Pokémon Null](https://github.com/NathanMelons/Null-Damage-Calc) avec intégration mGBA :
+
+### 1. Prérequis et Étapes Préalables
+Avant d'activer la synchronisation, assurez-vous d'avoir lancé l'environnement dans l'ordre suivant :
+1. **Lancez mGBA** (version 0.10.0 ou supérieure) et chargez votre ROM de **Pokémon Null**.
+2. Ouvrez la console de script via le menu **Outils** (*Tools*) > **Scripts...** (*Scripting...*).
+3. Cliquez sur **Fichier** (*File*) > **Charger un script...** (*Load script...*), naviguez vers votre dossier `vs-link` et sélectionnez **`vs.lua`**.
+4. Vérifiez que l'onglet **`Vs. Link`** apparaît bien dans la console, confirmant que le serveur local est actif et écoute sur `http://localhost:31123`
+
+**Astuce (Dossier scripts/) :** Si vous utilisez des scripts Lua additionnels (trackers de frags, assistants de capture), placez-les directement dans le dossier scripts/. Ils seront automatiquement exécutés dès le lancement de vs.lua
+
+### 2. Activer la synchronisation en direct
+1. Sur la page du calculateur, repérez le bouton bascule **`Auto-Sync mGBA`** (situé près de la barre d'outils supérieure ou de la section d'importation des sets).
+2. Cliquez sur le bouton pour faire passer l'état de **`OFF`** à **`ON`** :
+   * **Recherche...** : Le calculateur tente de contacter `http://localhost:31123`[cite: 10].
+   * **Connecté (Vert)** : La communication fonctionne ; vos boîtes PC et votre équipe active sont immédiatement importées.
+   * **Déconnecté / Émulateur non détecté (Rouge)** : Vérifiez que mGBA est bien ouvert et que `vs.lua` est chargé dans la fenêtre de scripts[cite: 9].
+3. Vos Pokémon apparaissent automatiquement dans les listes déroulantes du calculateur sous la catégorie des sets **Custom / Importés**.
+4. Toute capture, modification d'équipe ou gain de niveau en jeu est synchronisé automatiquement en arrière-plan toutes les quelques secondes, sans rafraîchissement manuel de la page. !
 
 ## Fonctionnalités Principales
 

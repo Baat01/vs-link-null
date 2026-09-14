@@ -1,0 +1,5 @@
+# Ignorer le contenu du dossier scripts
+scripts/*
+
+# Conserver le dossier scripts/ sur GitHub même s'il est vide
+!scripts/.gitkeep

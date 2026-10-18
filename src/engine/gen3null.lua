@@ -112,7 +112,10 @@ function createExpansionReader(profile)
     local hasEVs          = (layout.hasEVs == true)  -- Defaults to false for Null (no EVs)
 
     -- Level Curve reading from ROM (offset +21 in SpeciesInfo)
-    local speciesInfoAddr = addr.speciesInfo or 0x083E0448
+    local speciesInfoAddr = addr.speciesInfo or speciesInfo or 0x083E0448
+    if not speciesInfo then
+        speciesInfo = speciesInfoAddr
+    end
     local function getExpCurve(speciesId)
         if not speciesId or speciesId <= 0 then return 0 end
         return emu:read8(speciesInfoAddr + (36 * speciesId) + 21)
@@ -235,16 +238,31 @@ function createExpansionReader(profile)
         mon.speedIV      = (ivFlags >> 15) & 0x1F
         mon.spAttackIV   = (ivFlags >> 20) & 0x1F
         mon.spDefenseIV  = (ivFlags >> 25) & 0x1F
-        mon.abilitySlot  = (ss3[2] >> 29) & 0x3
 
         mon.ivs = {
             hp  = mon.hpIV,
             atk = mon.attackIV,
             def = mon.defenseIV,
             spa = mon.spAttackIV,
-            spd = mon.spDefenseEV,
+            spd = mon.spDefenseIV,
             spe = mon.speedIV,
         }
+
+        local flags      = ss3[2]
+        mon.altAbility   = (flags >> 29) & 3
+
+        if getAbility then
+            mon.ability = getAbility(mon)
+        elseif speciesInfo and abilities and mon.species and mon.species > 0 then
+            local abilityId = emu:read16(speciesInfo + (36 * mon.species) + 24 + ((mon.altAbility or 0) * 2))
+            mon.ability = abilities[abilityId] or "None"
+        else
+            mon.ability = "None"
+        end
+        if not mon.ability or mon.ability == "" then
+            mon.ability = "None"
+        end
+        mon.abilitySlot  = mon.altAbility or 0
 
         return mon
     end
@@ -270,6 +288,22 @@ function createExpansionReader(profile)
         mon.speed     = emu:read16(address + 94 + shift)
         mon.spAttack  = emu:read16(address + 96 + shift)
         mon.spDefense = emu:read16(address + 98 + shift)
+
+        -- Ensure ability is resolved for party mon
+        if not mon.ability or type(mon.ability) == "number" or mon.ability == "" then
+            if getAbility then
+                mon.ability = getAbility(mon)
+            elseif speciesInfo and abilities and mon.species and mon.species > 0 then
+                local abilityId = emu:read16(speciesInfo + (36 * mon.species) + 24 + ((mon.altAbility or 0) * 2))
+                mon.ability = abilities[abilityId] or "None"
+            else
+                mon.ability = "None"
+            end
+            if not mon.ability or mon.ability == "" then
+                mon.ability = "None"
+            end
+            mon.abilitySlot = mon.altAbility or 0
+        end
 
         return mon
     end
